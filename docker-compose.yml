@@ -1,0 +1,36 @@
+version: '3.9'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend_app
+    environment:
+      - PORT=5000
+      - MONGO_URL=mongodb+srv://hm124501_db_user:sampla124501@cluster0.vnye586.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      - NODE_ENV=development
+      - JWT_SECRET=chandermanimishra91
+      - JWT_EXPIRY=7d
+      - CLOUDINARY_CLOUD_NAME=dctjousyt
+      - CLOUDINARY_API_KEY=793752349595938
+      - CLOUDINARY_API_SECRET=r7rP5FW7n-5aQQauZAgHRxnyL9Q
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+    restart: always
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend_app
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
