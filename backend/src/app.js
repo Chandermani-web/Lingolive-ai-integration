@@ -5,6 +5,7 @@ import PostRouter from './routes/post.route.js';
 import FriendRouter from './routes/friend.route.js'
 import notificationRoutes from './routes/notification.route.js';
 import messageRoutes from './routes/message.route.js';
+import translationRoutes from './routes/translation.route.js';
 
 import cookieParser from 'cookie-parser';
 import path from 'path';
@@ -37,6 +38,7 @@ app.use("/api/posts", PostRouter);
 app.use("/api/friends", FriendRouter);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/translation", translationRoutes);
 
 app.get('/', (req, res) => {
     res.send("API is working");
