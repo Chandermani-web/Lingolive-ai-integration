@@ -1,10 +1,11 @@
 import Message from '../models/Message.model.js';
 import { io } from '../index.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { translateText } from '../utils/translationService.js';
 
 export const sendMessage = asyncHandler(async (req, res) => {
     const senderId = req.user._id;
-    const { receiverId, text } = req.body;
+    const { receiverId, text, targetLang, sourceLang } = req.body;
     const files = req.files || {};
 
     // Validate: at least one field must exist
@@ -24,7 +25,30 @@ export const sendMessage = asyncHandler(async (req, res) => {
         receiver: receiverId,
     };
 
-    if (text && text.trim()) messageData.text = text.trim();
+    if (text && text.trim()) {
+        messageData.text = text.trim();
+        
+        // If targetLang is provided, translate the message
+        if (targetLang) {
+            try {
+                const translationResult = await translateText(
+                    text.trim(),
+                    targetLang,
+                    sourceLang || 'auto'
+                );
+                
+                if (translationResult.success) {
+                    messageData.translatedText = translationResult.translated_text;
+                    messageData.sourceLang = translationResult.source_lang;
+                    messageData.targetLang = translationResult.target_lang;
+                    messageData.isTranslated = true;
+                }
+            } catch (error) {
+                console.error('Translation error:', error);
+                // Continue without translation if service fails
+            }
+        }
+    }
 
     if (files.image)
         messageData.image = files.image[0].path || files.image[0].secure_url;

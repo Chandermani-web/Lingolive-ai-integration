@@ -15,6 +15,7 @@ services:
       - CLOUDINARY_CLOUD_NAME=dctjousyt
       - CLOUDINARY_API_KEY=793752349595938
       - CLOUDINARY_API_SECRET=r7rP5FW7n-5aQQauZAgHRxnyL9Q
+      - TRANSLATION_API_URL=http://translation:5001
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -22,6 +23,8 @@ services:
       - "5000:5000"
     volumes:
       - ./backend:/app
+    depends_on:
+      - translation
     restart: always
 
   frontend:
@@ -34,3 +37,18 @@ services:
     depends_on:
       - backend
     restart: always
+
+  translation:
+    build:
+      context: ./AI/AMIT WORK DSU
+      dockerfile: Dockerfile.translation
+    container_name: translation_service
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5001
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./AI/AMIT WORK DSU:/app
+    restart: always
+

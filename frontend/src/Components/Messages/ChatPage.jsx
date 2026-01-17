@@ -1,6 +1,6 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useSocket } from "../../Context/SocketContext";
-import { Send, FolderUp, Menu, Smile, Mic } from "lucide-react";
+import { Send, FolderUp, Menu, Smile, Mic, Globe2 } from "lucide-react";
 import "remixicon/fonts/remixicon.css";
 import { useNavigate } from "react-router-dom";
 import AppContext from "../../Context/UseContext";
@@ -18,6 +18,19 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
     file: null,
   });
   const [loading, setLoading] = useState(false);
+  const [languages, setLanguages] = useState([]);
+  const [languageMap, setLanguageMap] = useState({});
+  const [languagesLoading, setLanguagesLoading] = useState(false);
+  const [languagesError, setLanguagesError] = useState(null);
+  const [usingFallbackLanguages, setUsingFallbackLanguages] = useState(false);
+  const [selectedLang, setSelectedLang] = useState(() => {
+    if (typeof window === "undefined") return "original";
+    return localStorage.getItem("chatTranslationLang") || "original";
+  });
+  const [translations, setTranslations] = useState({});
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationError, setTranslationError] = useState(null);
+  const [translationMeta, setTranslationMeta] = useState({});
 
   const chatEndRef = useRef(null);
 
@@ -39,12 +52,175 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
         const data = await res.json();
         console.log("Fetched messages:", data);
         setMessages(data || []);
+        setTranslations({});
       } catch (error) {
         console.error("Error fetching messages:", error);
       }
     };
     fetchMessages();
   }, [selectedUser]);
+
+  useEffect(() => {
+    const fetchLanguages = async () => {
+      setLanguagesLoading(true);
+      setLanguagesError(null);
+      try {
+        const response = await fetch("http://localhost:5000/api/translation/languages", {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Unable to load languages");
+        }
+        const entries = Object.entries(data.languages || {});
+        const sorted = entries
+          .map(([code, name]) => ({ code, name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setLanguages(sorted);
+        setLanguageMap(sorted.reduce((acc, item) => {
+          acc[item.code] = item.name;
+          return acc;
+        }, {}));
+        setUsingFallbackLanguages(Boolean(data.fallback));
+        setSelectedLang((prev) => {
+          if (prev !== "original" && !sorted.some((item) => item.code === prev)) {
+            if (typeof window !== "undefined") {
+              localStorage.setItem("chatTranslationLang", "original");
+            }
+            return "original";
+          }
+          return prev;
+        });
+      } catch (error) {
+        console.error("Error fetching languages:", error);
+        setUsingFallbackLanguages(false);
+        setLanguagesError(error.message || "Unable to load languages");
+      } finally {
+        setLanguagesLoading(false);
+      }
+    };
+
+    fetchLanguages();
+  }, []);
+
+  useEffect(() => {
+    if (selectedLang === "original") {
+      setIsTranslating(false);
+      setTranslationError(null);
+      return;
+    }
+
+    const messagesToTranslate = messages.filter((message) => {
+      if (!message?.text || !message.text.trim()) return false;
+      if (message.targetLang === selectedLang && message.translatedText) return false;
+      const cached = translations[message._id];
+      if (cached && cached[selectedLang]) return false;
+      const status = translationMeta[message._id]?.[selectedLang];
+      if (status === "pending" || status === "failed") return false;
+      return true;
+    });
+
+    if (!messagesToTranslate.length) {
+      setIsTranslating(false);
+      return;
+    }
+
+    let ignore = false;
+
+    setTranslationMeta((prev) => {
+      if (!messagesToTranslate.length) return prev;
+      const next = { ...prev };
+      messagesToTranslate.forEach((msg) => {
+        const current = next[msg._id] ? { ...next[msg._id] } : {};
+        current[selectedLang] = "pending";
+        next[msg._id] = current;
+      });
+      return next;
+    });
+
+    const translateBatch = async () => {
+      setIsTranslating(true);
+      setTranslationError(null);
+      try {
+        const response = await fetch("http://localhost:5000/api/translation/translate/batch", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            texts: messagesToTranslate.map((msg) => msg.text.trim()),
+            targetLang: selectedLang,
+            sourceLang: "auto",
+          }),
+        });
+
+        const data = await response.json();
+
+        if (ignore) return;
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Translation failed");
+        }
+
+        const translatedEntries = {};
+        (data.translations || []).forEach((item, index) => {
+          const targetMessage = messagesToTranslate[index];
+          if (targetMessage?._id && item?.translated) {
+            if (!translatedEntries[targetMessage._id]) {
+              translatedEntries[targetMessage._id] = {};
+            }
+            translatedEntries[targetMessage._id][selectedLang] = item.translated;
+          }
+        });
+
+        setTranslations((prev) => {
+          const next = { ...prev };
+          Object.entries(translatedEntries).forEach(([messageId, languageTranslations]) => {
+            next[messageId] = {
+              ...(next[messageId] || {}),
+              ...languageTranslations,
+            };
+          });
+          return next;
+        });
+        setTranslationMeta((prev) => {
+          const next = { ...prev };
+          Object.keys(translatedEntries).forEach((messageId) => {
+            const current = next[messageId] ? { ...next[messageId] } : {};
+            current[selectedLang] = "success";
+            next[messageId] = current;
+          });
+          return next;
+        });
+      } catch (error) {
+        console.error("Error translating messages:", error);
+        if (!ignore) {
+          setTranslationError(error.message || "Unable to translate messages");
+          setTranslationMeta((prev) => {
+            const next = { ...prev };
+            messagesToTranslate.forEach((msg) => {
+              const current = next[msg._id] ? { ...next[msg._id] } : {};
+              current[selectedLang] = "failed";
+              next[msg._id] = current;
+            });
+            return next;
+          });
+        }
+      } finally {
+        if (!ignore) {
+          setIsTranslating(false);
+        }
+      }
+    };
+
+    translateBatch();
+
+    return () => {
+      ignore = true;
+    };
+  }, [messages, selectedLang]);
 
   const handleMediaChange = (e) => {
     const file = e.target.files[0];
@@ -72,6 +248,10 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
       if (media.video) formData.append("video", media.video);
       if (media.audio) formData.append("audio", media.audio);
       if (media.file) formData.append("file", media.file);
+      if (selectedLang && selectedLang !== "original") {
+        formData.append("targetLang", selectedLang);
+        formData.append("sourceLang", "auto");
+      }
 
       const res = await fetch("http://localhost:5000/api/messages", {
         method: "POST",
@@ -116,6 +296,21 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
     }
   };
 
+  const handleLanguageChange = (event) => {
+    const newValue = event.target.value;
+    setSelectedLang(newValue);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("chatTranslationLang", newValue);
+    }
+  };
+
+  const getLanguageLabel = useMemo(() => {
+    return (code) => {
+      if (code === "original") return "Original";
+      return languageMap[code] || code?.toUpperCase();
+    };
+  }, [languageMap]);
+
   return (
     <div className="flex flex-col h-full bg-gray-900/10 backdrop-blur-xl border-l border-gray-700/10 relative">
       {/* Header */}
@@ -154,6 +349,43 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
             </p>
           </div>
         </div>
+        <div className="flex flex-col md:flex-row md:items-center md:gap-4 gap-2">
+          <div className="flex items-center gap-2 text-sm text-gray-300">
+            <Globe2 className="w-4 h-4 text-blue-400" />
+            <span>Translate to</span>
+          </div>
+          <div className="relative">
+            <select
+              value={selectedLang}
+              onChange={handleLanguageChange}
+              disabled={languagesLoading || !!languagesError}
+              className="bg-gray-800/70 border border-gray-700/60 text-sm text-gray-100 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500/60 appearance-none pr-10"
+            >
+              <option value="original">Show original</option>
+              {languages.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400 text-xs">▼</span>
+          </div>
+          {languagesLoading && (
+            <span className="text-xs text-blue-300">Loading languages…</span>
+          )}
+          {languagesError && (
+            <span className="text-xs text-red-400">{languagesError}</span>
+          )}
+          {usingFallbackLanguages && !languagesError && (
+            <span className="text-xs text-amber-300">Limited list while translator reconnects</span>
+          )}
+          {isTranslating && selectedLang !== "original" && (
+            <span className="text-xs text-blue-300">Translating…</span>
+          )}
+          {translationError && selectedLang !== "original" && (
+            <span className="text-xs text-red-400">{translationError}</span>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -162,6 +394,29 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
           const senderId = typeof m.sender === "object" ? m.sender._id : m.sender;
           const isOwn = senderId !== selectedUser._id;
           const isMenuOpen = editOn === m._id;
+          const originalText = m.text?.trim();
+          const storedTranslationMatch =
+            selectedLang !== "original" &&
+            originalText &&
+            m.targetLang === selectedLang &&
+            m.translatedText
+              ? m.translatedText
+              : null;
+          const cachedTranslation =
+            selectedLang !== "original" && translations[m._id]
+              ? translations[m._id][selectedLang]
+              : null;
+          const status = translationMeta[m._id]?.[selectedLang];
+          const hasTranslation = Boolean(storedTranslationMatch || cachedTranslation);
+          const translationText = storedTranslationMatch || cachedTranslation;
+          const translationPending =
+            selectedLang !== "original" &&
+            !!originalText &&
+            status === "pending";
+          const translationFailed =
+            selectedLang !== "original" &&
+            !!originalText &&
+            status === "failed";
 
           return (
             <div
@@ -246,7 +501,30 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
                       Download file
                     </a>
                   )}
-                  {m.text && <p className="text-sm leading-relaxed">{m.text}</p>}
+                  {originalText && (
+                    <div className="space-y-2">
+                      <p className="text-sm leading-relaxed">
+                        {selectedLang !== "original" && hasTranslation
+                          ? translationText
+                          : m.text}
+                      </p>
+                      {selectedLang !== "original" && hasTranslation && (
+                        <p className="text-[11px] text-gray-200/70 italic">
+                          Original: {m.text}
+                        </p>
+                      )}
+                      {translationPending && (
+                        <p className="text-[11px] text-gray-300/80 italic">
+                          Translating to {getLanguageLabel(selectedLang)}…
+                        </p>
+                      )}
+                      {translationFailed && (
+                        <p className="text-[11px] text-red-300/80 italic">
+                          Translation unavailable right now
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                 <span className={`text-[10px] block mt-2 text-right ${isOwn ? "text-blue-100" : "text-gray-400"
                   }`}>
