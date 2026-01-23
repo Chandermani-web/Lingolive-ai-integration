@@ -13,6 +13,8 @@ const ICE_SERVERS = [
 export const CallProvider = ({ children }) => {
   const { socket } = useSocket();
   const { user } = useContext(AppContext);
+  
+  console.log("🔧 CallProvider mounted - socket:", !!socket, "user:", !!user);
   const [callState, setCallState] = useState("idle");
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
@@ -110,9 +112,28 @@ export const CallProvider = ({ children }) => {
   };
 
   const startCall = async (targetUser) => {
-    if (!socket || !targetUser?._id || !user?._id) return;
-    if (callState !== "idle") return;
+    console.log("🔍 startCall called with targetUser:", targetUser?._id);
+    console.log("   socket:", !!socket, "user:", !!user, "callState:", callState);
+    
+    if (!socket) {
+      console.error("❌ socket is null");
+      return;
+    }
+    if (!targetUser?._id) {
+      console.error("❌ targetUser._id is missing");
+      return;
+    }
+    if (!user?._id) {
+      console.error("❌ user._id is missing");
+      return;
+    }
+    if (callState !== "idle") {
+      console.error("❌ callState is not idle:", callState);
+      return;
+    }
+    
     try {
+      console.log("✅ All checks passed, initiating call...");
       setCallError(null);
       setCallState("calling");
       setActiveCall({ peer: targetUser, direction: "outgoing" });
@@ -124,6 +145,7 @@ export const CallProvider = ({ children }) => {
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
 
+      console.log("📞 Emitting call:offer to", targetUser._id);
       socket.emit("call:offer", {
         targetId: targetUser._id,
         offer,
@@ -141,26 +163,43 @@ export const CallProvider = ({ children }) => {
   };
 
   const acceptCall = async () => {
-    if (!socket || !incomingCall) return;
+    console.log("🎯 acceptCall - incomingCall:", incomingCall?.from);
+    if (!socket || !incomingCall) {
+      console.error("❌ acceptCall: socket or incomingCall missing");
+      return;
+    }
     try {
       setCallError(null);
       setCallState("connecting");
+      console.log("🎤 Requesting microphone access...");
       const stream = await ensureMicrophone();
+      console.log("✅ Microphone granted, creating peer connection...");
+      
       const connection = createPeerConnection(incomingCall.from);
       if (!connection) throw new Error("Unable to create peer connection");
-      stream.getTracks().forEach((track) => connection.addTrack(track, stream));
+      
+      stream.getTracks().forEach((track) => {
+        console.log("📌 Adding track to connection:", track.kind);
+        connection.addTrack(track, stream);
+      });
+      
+      console.log("🔄 Setting remote description from offer...");
       await connection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      
+      console.log("📋 Creating answer...");
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
 
+      console.log("📤 Emitting call:answer to", incomingCall.from);
       socket.emit("call:answer", {
         targetId: incomingCall.from,
         answer,
       });
       setActiveCall({ peer: incomingCall.caller, direction: "incoming" });
       setIncomingCall(null);
+      console.log("✅ Call accepted successfully!");
     } catch (error) {
-      console.error("Failed to accept call", error);
+      console.error("❌ Failed to accept call:", error.name, error.message);
       setCallError(error?.message || "Unable to accept call");
       cleanupCall();
     }
@@ -271,34 +310,25 @@ export const CallProvider = ({ children }) => {
     };
   }, []);
 
-  const value = useMemo(
-    () => ({
-      callState,
-      incomingCall,
-      activeCall,
-      localStream,
-      remoteStream,
-      callError,
-      isMuted,
-      startCall,
-      acceptCall,
-      declineCall,
-      endCall,
-      toggleMute,
-      cleanupCall,
-    }),
-    [
-      callState,
-      incomingCall,
-      activeCall,
-      localStream,
-      remoteStream,
-      callError,
-      isMuted,
-    ]
-  );
+  // Don't memoize the entire value object as it causes stale closures
+  // Return fresh context value on every render with current function references
+  const contextValue = {
+    callState,
+    incomingCall,
+    activeCall,
+    localStream,
+    remoteStream,
+    callError,
+    isMuted,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMute,
+    cleanupCall,
+  };
 
-  return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
+  return <CallContext.Provider value={contextValue}>{children}</CallContext.Provider>;
 };
 
 export const useCall = () => {

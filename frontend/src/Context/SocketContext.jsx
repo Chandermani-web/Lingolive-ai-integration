@@ -14,12 +14,20 @@ export const SocketProvider = ({ children }) => {
   const [onlineUsers, setOnlineUsers] = useState([]);
 
   useEffect(() => {
-    if (!user?._id) return;
+    if (!user?._id) {
+      console.log("⏳ SocketProvider waiting for user._id");
+      return;
+    }
 
+    console.log("🔌 SocketProvider creating socket for user:", user._id);
     const newSocket = io("http://localhost:5000", {
       query: { userId: user._id },
       withCredentials: true,
       transports: ["websocket"],
+    });
+
+    newSocket.on("connect", () => {
+      console.log("✅ Socket connected:", newSocket.id);
     });
 
     setSocket(newSocket);

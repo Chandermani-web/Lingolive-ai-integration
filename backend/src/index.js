@@ -33,6 +33,52 @@ io.on("connection", (socket) => {
     io.emit("onlineUsers", Array.from(onlineUsers.keys()));
   });
 
+  socket.on("call:offer", ({ targetId, offer, caller }) => {
+    if (!targetId || !offer || !caller) return;
+    const targetSocketId = onlineUsers.get(targetId);
+    if (!targetSocketId) {
+      socket.emit("call:unavailable", { targetId });
+      return;
+    }
+    io.to(targetSocketId).emit("call:incoming", {
+      from: caller._id,
+      caller,
+      offer,
+    });
+  });
+
+  socket.on("call:answer", ({ targetId, answer }) => {
+    if (!targetId || !answer) return;
+    const targetSocketId = onlineUsers.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call:answered", { answer });
+    }
+  });
+
+  socket.on("call:ice-candidate", ({ targetId, candidate }) => {
+    if (!targetId || !candidate) return;
+    const targetSocketId = onlineUsers.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call:ice-candidate", { candidate });
+    }
+  });
+
+  socket.on("call:decline", ({ targetId }) => {
+    if (!targetId) return;
+    const targetSocketId = onlineUsers.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call:declined");
+    }
+  });
+
+  socket.on("call:end", ({ targetId, reason }) => {
+    if (!targetId) return;
+    const targetSocketId = onlineUsers.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call:ended", { reason: reason || "ended" });
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("🔴 User disconnected:", socket.id);
     for (let [userId, sockId] of onlineUsers.entries()) {

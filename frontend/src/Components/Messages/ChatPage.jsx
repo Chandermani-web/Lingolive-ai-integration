@@ -1,14 +1,16 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useSocket } from "../../Context/SocketContext";
-import { Send, FolderUp, Menu, Smile, Mic, Globe2 } from "lucide-react";
+import { Send, FolderUp, Menu, Smile, Mic, Globe2, Phone } from "lucide-react";
 import "remixicon/fonts/remixicon.css";
 import { useNavigate } from "react-router-dom";
 import AppContext from "../../Context/UseContext";
+import { useCall } from "../../Context/CallContext";
 
 const ChatPage = ({ selectedUser, onOpenSidebar }) => {
   const navigate = useNavigate();
   const { messages, setMessages, onlineUsers } = useSocket();
   const { setShowImage } = useContext(AppContext);
+  const { startCall, callState, activeCall } = useCall();
   const [text, setText] = useState("");
   const [editOn, setEditOn] = useState(null);
   const [media, setMedia] = useState({
@@ -33,6 +35,33 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
   const [translationMeta, setTranslationMeta] = useState({});
 
   const chatEndRef = useRef(null);
+
+  const isCallWithSelected = useMemo(() => {
+    if (!selectedUser?._id || !activeCall?.peer?._id) return false;
+    return activeCall.peer._id === selectedUser._id;
+  }, [activeCall, selectedUser]);
+
+  const callButtonDisabled = useMemo(() => {
+    if (!selectedUser?._id) return true;
+    if (callState === "idle") return false;
+    return !isCallWithSelected;
+  }, [callState, isCallWithSelected, selectedUser]);
+
+  const callButtonLabel = useMemo(() => {
+    if (!isCallWithSelected) return "Call";
+    switch (callState) {
+      case "incoming":
+        return "Incoming…";
+      case "calling":
+        return "Calling…";
+      case "connecting":
+        return "Connecting…";
+      case "connected":
+        return "In call";
+      default:
+        return "Call";
+    }
+  }, [callState, isCallWithSelected]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -350,6 +379,25 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
           </div>
         </div>
         <div className="flex flex-col md:flex-row md:items-center md:gap-4 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!callButtonDisabled) {
+                startCall(selectedUser);
+              }
+            }}
+            disabled={callButtonDisabled}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-300 border ${
+              callButtonDisabled
+                ? "bg-gray-800/50 text-gray-500 border-gray-700/60 cursor-not-allowed"
+                : callState !== "idle"
+                ? "bg-purple-600/90 hover:bg-purple-600 text-white border-purple-500/60"
+                : "bg-blue-600/90 hover:bg-blue-600 text-white border-blue-500/60"
+            }`}
+          >
+            <Phone className="w-4 h-4" />
+            <span className="text-sm font-medium">{callButtonLabel}</span>
+          </button>
           <div className="flex items-center gap-2 text-sm text-gray-300">
             <Globe2 className="w-4 h-4 text-blue-400" />
             <span>Translate to</span>

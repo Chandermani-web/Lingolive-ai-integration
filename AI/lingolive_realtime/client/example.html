@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>LingoLive Client Example</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      label { display: inline-block; width: 160px; }
+    </style>
+  </head>
+  <body>
+    <h2>LingoLive – Real-Time Translation</h2>
+    <div>
+      <label>Source Lang:</label>
+      <select id="src">
+        <option value="en" selected>English</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+      </select>
+    </div>
+    <div>
+      <label>Target Lang:</label>
+      <select id="tgt">
+        <option value="es" selected>Spanish</option>
+        <option value="en">English</option>
+        <option value="fr">French</option>
+      </select>
+    </div>
+    <div>
+      <button id="start">Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <div>
+      <label>Play Translated Audio:</label>
+      <input type="checkbox" id="playTranslated" checked />
+    </div>
+
+    <h3>Translated Audio</h3>
+    <audio id="remoteAudio" autoplay playsinline></audio>
+
+    <script>
+      const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + (location.hostname || 'localhost') + ':8000/ws';
+      let pc, ws, localStream;
+
+      const $ = (id) => document.getElementById(id);
+
+      async function start() {
+        $('start').disabled = true;
+        $('stop').disabled = false;
+        const src = $('src').value;
+        const tgt = $('tgt').value;
+
+        ws = new WebSocket(wsUrl);
+        await new Promise((res) => ws.addEventListener('open', res, { once: true }));
+
+        ws.send(JSON.stringify({ type: 'init', source_lang: src, target_lang: tgt }));
+
+        pc = new RTCPeerConnection({
+          iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+        });
+
+        pc.addEventListener('track', (ev) => {
+          if (ev.track.kind === 'audio') {
+            $('remoteAudio').srcObject = ev.streams[0] || new MediaStream([ev.track]);
+          }
+        });
+
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        for (const track of localStream.getAudioTracks()) {
+          pc.addTrack(track, localStream);
+        }
+
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription }));
+
+        ws.addEventListener('message', async (ev) => {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'answer') {
+            await pc.setRemoteDescription(msg.sdp);
+          }
+        });
+
+        $('playTranslated').addEventListener('change', () => {
+          $('remoteAudio').muted = !$('playTranslated').checked;
+        });
+      }
+
+      async function stop() {
+        $('start').disabled = false;
+        $('stop').disabled = true;
+        try { ws && ws.send(JSON.stringify({ type: 'bye' })); } catch {}
+        try { ws && ws.close(); } catch {}
+        try { pc && pc.close(); } catch {}
+        if (localStream) localStream.getTracks().forEach(t => t.stop());
+        pc = null; ws = null; localStream = null;
+      }
+
+      $('start').addEventListener('click', start);
+      $('stop').addEventListener('click', stop);
+    </script>
+  </body>
+ </html>

@@ -6,6 +6,7 @@ import Navbar from "./Components/Common/Navbar";
 import NotificationPopupManager from "./Context/NotificationProvider";
 // import Loading from "./Loading";
 import LandingPage from "./LandingPage";
+import VoiceCallOverlay from "./Components/Call/VoiceCallOverlay";
 
 const Home = lazy(() => import("./pages/Home"));
 const Profile = lazy(() => import("./pages/Profile"));
@@ -50,6 +51,7 @@ const App = () => {
           </Routes>
         </Suspense>
         <NotificationPopupManager />
+        <VoiceCallOverlay />
       </div>
   );
 };
