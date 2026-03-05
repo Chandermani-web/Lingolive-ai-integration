@@ -1,0 +1,85 @@
+# Speech-to-Speech Translation System Requirements
+# Optimized for RTX 4050 GPU (6GB VRAM)
+
+# Core Deep Learning Framework
+# NOTE: Install PyTorch FIRST before other packages (see instructions below)
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# CUDA support - Install PyTorch separately BEFORE running pip install -r requirements.txt
+# Option 1: Latest stable with CUDA (recommended)
+#   pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# Option 2: CPU only (if no GPU)
+#   pip3 install torch torchvision torchaudio
+#
+# Option 3: From conda (alternative)
+#   conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+
+# ASR (Automatic Speech Recognition) - Whisper
+openai-whisper>=20231117
+# Alternative: faster-whisper for faster inference
+# faster-whisper>=0.10.0
+
+# Translation - IndicTrans2 and HuggingFace
+transformers>=4.36.0
+sentencepiece>=0.1.99
+sacremoses>=0.0.53
+indic-nlp-library>=0.92
+
+# TTS (Text-to-Speech) - Coqui TTS
+TTS>=0.22.0
+# Coqui TTS dependencies
+einops>=0.7.0
+inflect>=7.0.0
+librosa>=0.10.0
+phonemizer>=3.2.1
+
+# Audio Processing
+soundfile>=0.12.1
+scipy>=1.11.0
+numpy>=1.24.0
+pydub>=0.25.1
+audioread>=3.0.0
+
+# Utilities
+loguru>=0.7.2
+tqdm>=4.66.0
+python-dotenv>=1.0.0
+
+# Optional: Optimization packages
+# accelerate>=0.25.0  # For faster model loading
+# bitsandbytes>=0.41.0  # For 8-bit quantization
+
+# Optional: Web API support (if building REST API)
+# fastapi>=0.110.0
+# uvicorn[standard]>=0.27.0
+# python-multipart>=0.0.6
+
+# Development tools (optional)
+# pytest>=7.4.0
+# black>=23.12.0
+# flake8>=6.1.0
+# mypy>=1.7.0
+
+# INSTALLATION INSTRUCTIONS:
+# ===========================
+# Step 1: Install PyTorch FIRST (choose one method)
+#
+# Method 1 - Pip with CUDA 12.1 (Recommended for RTX 4050):
+#   pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# Method 2 - Pip with CUDA 11.8 (if you have older CUDA):
+#   pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# Method 3 - Pip CPU only (no GPU acceleration):
+#   pip3 install torch torchvision torchaudio
+#
+# Method 4 - Conda (alternative):
+#   conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+#
+# Step 2: Install other requirements:
+#   pip install -r requirements_speech_translation.txt
+#
+# Step 3: Verify installation:
+#   python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"

@@ -1,6 +1,6 @@
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSocket } from "../../Context/SocketContext";
-import { Send, FolderUp, Menu, Smile, Mic, Globe2, Phone } from "lucide-react";
+import { Send, FolderUp, Menu, Smile, Mic, MicOff, Globe2, Phone, Video, Square, Volume2 } from "lucide-react";
 import "remixicon/fonts/remixicon.css";
 import { useNavigate } from "react-router-dom";
 import AppContext from "../../Context/UseContext";
@@ -11,6 +11,9 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
   const { messages, setMessages, onlineUsers } = useSocket();
   const { setShowImage } = useContext(AppContext);
   const { startCall, callState, activeCall } = useCall();
+
+  // Video call also needs the same disabled logic
+  const isCallActive = callState !== "idle";
   const [text, setText] = useState("");
   const [editOn, setEditOn] = useState(null);
   const [media, setMedia] = useState({
@@ -33,6 +36,17 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationError, setTranslationError] = useState(null);
   const [translationMeta, setTranslationMeta] = useState({});
+
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [voiceTranslating, setVoiceTranslating] = useState(false);
+  const [voiceResult, setVoiceResult] = useState(null);
+  const [voiceError, setVoiceError] = useState(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const translatedAudioRef = useRef(null);
 
   const chatEndRef = useRef(null);
 
@@ -333,6 +347,150 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
     }
   };
 
+  // ── Voice Recording & Translation ──────────────────────────────────────
+
+  const startRecording = useCallback(async () => {
+    try {
+      setVoiceError(null);
+      setVoiceResult(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm",
+      });
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks
+        stream.getTracks().forEach((track) => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+
+        if (audioBlob.size < 1000) {
+          setVoiceError("Recording too short. Hold the mic button longer.");
+          return;
+        }
+
+        // If no translation language selected, just send as audio message
+        if (selectedLang === "original") {
+          setMedia({ image: null, video: null, audio: new File([audioBlob], "voice_message.webm", { type: "audio/webm" }), file: null });
+          return;
+        }
+
+        // Send to AI for voice translation
+        await translateVoice(audioBlob);
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(250); // collect data every 250ms
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      // Timer
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone error:", err);
+      setVoiceError("Microphone access denied. Please allow mic permission.");
+    }
+  }, [selectedLang]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  const translateVoice = useCallback(async (audioBlob) => {
+    setVoiceTranslating(true);
+    setVoiceError(null);
+    try {
+      // Map ISO code back to full language name for the AI server
+      const langName = languageMap[selectedLang] || selectedLang;
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+      formData.append("sourceLang", "english"); // auto-detect from whisper
+      formData.append("targetLang", langName.toLowerCase());
+
+      const response = await fetch("http://localhost:5000/api/translation/voice", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Voice translation failed");
+      }
+
+      setVoiceResult(data);
+
+      // Auto-play translated audio
+      if (data.audio_base64) {
+        const audioBytes = atob(data.audio_base64);
+        const audioArray = new Uint8Array(audioBytes.length);
+        for (let i = 0; i < audioBytes.length; i++) {
+          audioArray[i] = audioBytes.charCodeAt(i);
+        }
+        const audioBlob = new Blob([audioArray], { type: "audio/wav" });
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        if (translatedAudioRef.current) {
+          translatedAudioRef.current.src = audioUrl;
+          translatedAudioRef.current.play().catch(() => {});
+        }
+      }
+
+      // Auto-fill the text input with transcription so user can send as message
+      if (data.transcription) {
+        setText(data.transcription);
+      }
+    } catch (err) {
+      console.error("Voice translation error:", err);
+      setVoiceError(err.message || "Voice translation failed");
+    } finally {
+      setVoiceTranslating(false);
+    }
+  }, [selectedLang, languageMap]);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
+
+  const formatRecordingTime = (seconds) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
+
   const getLanguageLabel = useMemo(() => {
     return (code) => {
       if (code === "original") return "Original";
@@ -379,11 +537,12 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
           </div>
         </div>
         <div className="flex flex-col md:flex-row md:items-center md:gap-4 gap-2">
+          {/* Audio Call Button */}
           <button
             type="button"
             onClick={() => {
               if (!callButtonDisabled) {
-                startCall(selectedUser);
+                startCall(selectedUser, "audio");
               }
             }}
             disabled={callButtonDisabled}
@@ -397,6 +556,24 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
           >
             <Phone className="w-4 h-4" />
             <span className="text-sm font-medium">{callButtonLabel}</span>
+          </button>
+          {/* Video Call Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!isCallActive && selectedUser?._id) {
+                startCall(selectedUser, "video");
+              }
+            }}
+            disabled={!selectedUser?._id || isCallActive}
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 border ${
+              !selectedUser?._id || isCallActive
+                ? "bg-gray-800/50 text-gray-500 border-gray-700/60 cursor-not-allowed"
+                : "bg-green-600/90 hover:bg-green-600 text-white border-green-500/60"
+            }`}
+            title="Video Call"
+          >
+            <Video className="w-4 h-4" />
           </button>
           <div className="flex items-center gap-2 text-sm text-gray-300">
             <Globe2 className="w-4 h-4 text-blue-400" />
@@ -637,6 +814,78 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
         </div>
       )}
 
+      {/* Voice translation result */}
+      {voiceResult && (
+        <div className="p-3 border-t border-gray-700/50 bg-gradient-to-r from-green-900/20 to-blue-900/20">
+          <div className="flex items-center justify-between">
+            <div className="flex-1 space-y-1">
+              <p className="text-xs text-gray-400">
+                <span className="text-green-400 font-medium">Heard:</span> {voiceResult.transcription}
+              </p>
+              {voiceResult.translated_text && (
+                <p className="text-xs text-gray-400">
+                  <span className="text-blue-400 font-medium">Translated:</span> {voiceResult.translated_text}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {voiceResult.audio_base64 && (
+                <button
+                  onClick={() => translatedAudioRef.current?.play()}
+                  className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-xl transition-all"
+                  title="Replay translated audio"
+                >
+                  <Volume2 className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                onClick={() => setVoiceResult(null)}
+                className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded-lg hover:bg-gray-700/50 transition-all"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recording indicator */}
+      {isRecording && (
+        <div className="flex items-center gap-3 px-4 py-3 border-t border-red-500/30 bg-red-900/20 animate-pulse">
+          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+          <span className="text-red-400 text-sm font-medium">Recording {formatRecordingTime(recordingTime)}</span>
+          <span className="text-gray-500 text-xs">
+            {selectedLang !== "original"
+              ? `Will translate to ${languageMap[selectedLang] || selectedLang}`
+              : "Tap stop to attach as voice message"}
+          </span>
+        </div>
+      )}
+
+      {/* Voice translating indicator */}
+      {voiceTranslating && (
+        <div className="flex items-center gap-3 px-4 py-3 border-t border-blue-500/30 bg-blue-900/20">
+          <div className="w-4 h-4 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin"></div>
+          <span className="text-blue-400 text-sm">Translating your voice...</span>
+        </div>
+      )}
+
+      {/* Voice error */}
+      {voiceError && (
+        <div className="flex items-center gap-3 px-4 py-2 border-t border-red-500/30 bg-red-900/10">
+          <span className="text-red-400 text-xs">{voiceError}</span>
+          <button
+            onClick={() => setVoiceError(null)}
+            className="text-red-500 text-xs hover:text-red-300 ml-auto"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Hidden audio element for playing translated speech */}
+      <audio ref={translatedAudioRef} className="hidden" />
+
       {/* Input Area */}
       <div className="flex items-center gap-3 border-t border-gray-700/50 p-4 bg-gray-900/80 backdrop-blur-xl">
         <button className="p-3 text-amber-400 hover:text-amber-300 hover:bg-gray-700/50 rounded-2xl transition-all duration-300">
@@ -668,8 +917,19 @@ const ChatPage = ({ selectedUser, onOpenSidebar }) => {
           />
         </div>
 
-        <button className="p-3 text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 rounded-2xl transition-all duration-300">
-          <Mic className="w-6 h-6" />
+        <button
+          onClick={toggleRecording}
+          disabled={voiceTranslating}
+          className={`p-3 rounded-2xl transition-all duration-300 ${
+            isRecording
+              ? "bg-red-500/20 text-red-400 hover:bg-red-500/30 ring-2 ring-red-500/50 animate-pulse"
+              : voiceTranslating
+              ? "text-gray-600 cursor-not-allowed"
+              : "text-gray-400 hover:text-gray-300 hover:bg-gray-700/50"
+          }`}
+          title={isRecording ? "Stop recording" : selectedLang !== "original" ? `Record & translate to ${languageMap[selectedLang] || selectedLang}` : "Record voice message"}
+        >
+          {isRecording ? <Square className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
         </button>
 
         <button

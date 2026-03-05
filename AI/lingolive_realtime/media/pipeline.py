@@ -55,17 +55,17 @@ class TranslationPipeline:
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.vad = VAD(aggressiveness=2, frame_ms=20)
-        self.stt = STTEngine(model_size="base")
+        self.stt = STTEngine(model_size="tiny")
         self.translator = Translator()
         self.tts = TTS(voice=tts_voice)
 
         self.out_track = TranslatedAudioTrack()
 
-        # Queues between stages
-        self._pcm_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
-        self._voiced_chunk_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=50)
-        self._text_q: asyncio.Queue[str] = asyncio.Queue(maxsize=50)
-        self._translated_q: asyncio.Queue[str] = asyncio.Queue(maxsize=50)
+        # Queues between stages — smaller queues = bounded latency
+        self._pcm_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=100)
+        self._voiced_chunk_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=20)
+        self._text_q: asyncio.Queue[str] = asyncio.Queue(maxsize=10)
+        self._translated_q: asyncio.Queue[str] = asyncio.Queue(maxsize=10)
 
         # Task handles for graceful shutdown
         self._tasks: list[asyncio.Task] = []

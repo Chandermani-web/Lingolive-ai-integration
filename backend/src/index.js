@@ -33,7 +33,7 @@ io.on("connection", (socket) => {
     io.emit("onlineUsers", Array.from(onlineUsers.keys()));
   });
 
-  socket.on("call:offer", ({ targetId, offer, caller }) => {
+  socket.on("call:offer", ({ targetId, offer, caller, callType }) => {
     if (!targetId || !offer || !caller) return;
     const targetSocketId = onlineUsers.get(targetId);
     if (!targetSocketId) {
@@ -44,6 +44,7 @@ io.on("connection", (socket) => {
       from: caller._id,
       caller,
       offer,
+      callType: callType || "audio",
     });
   });
 

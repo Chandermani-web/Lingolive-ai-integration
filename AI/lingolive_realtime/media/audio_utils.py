@@ -6,13 +6,21 @@ from typing import AsyncIterator, Iterator, Optional
 import av
 import numpy as np
 
+# ── Cached resamplers (avoid recreation per frame) ──────────────────────────
+_resamplers: dict = {}
+
+
+def _get_resampler(target_rate: int = 16000) -> av.AudioResampler:
+    """Return a cached resampler for the given target rate."""
+    if target_rate not in _resamplers:
+        _resamplers[target_rate] = av.AudioResampler(format="s16", layout="mono", rate=target_rate)
+    return _resamplers[target_rate]
+
 
 def resample_audioframe_to_pcm16_mono(frame: av.AudioFrame, target_rate: int = 16000) -> bytes:
     """Convert an av.AudioFrame to 16kHz mono signed 16-bit PCM bytes."""
-    # Ensure format s16, mono, target rate
-    resampler = av.AudioResampler(format="s16", layout="mono", rate=target_rate)
+    resampler = _get_resampler(target_rate)
     frame16 = resampler.resample(frame)
-    # frame16.planes[0] holds interleaved PCM for mono
     return bytes(frame16.planes[0])
 
 

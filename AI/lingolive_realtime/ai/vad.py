@@ -30,8 +30,8 @@ class VAD:
     def collect_voiced_chunks(
         self,
         frames: Iterable[bytes],
-        min_chunk_ms: int = 500,
-        max_chunk_ms: int = 1000,
+        min_chunk_ms: int = 200,
+        max_chunk_ms: int = 600,
     ) -> Iterable[Tuple[bytes, bool]]:
         """Yield (chunk_bytes, end_of_utterance) from input frames.
 

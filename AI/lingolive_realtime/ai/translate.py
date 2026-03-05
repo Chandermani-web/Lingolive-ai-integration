@@ -53,6 +53,6 @@ class Translator:
             return text
         tok, mdl = pair
         batch = tok([text], return_tensors="pt", padding=True)
-        out = mdl.generate(**batch, max_new_tokens=64)
+        out = mdl.generate(**batch, max_new_tokens=64, num_beams=1)
         detok = tok.batch_decode(out, skip_special_tokens=True)
         return detok[0] if detok else text

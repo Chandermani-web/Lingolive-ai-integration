@@ -7,6 +7,7 @@ import NotificationPopupManager from "./Context/NotificationProvider";
 // import Loading from "./Loading";
 import LandingPage from "./LandingPage";
 import VoiceCallOverlay from "./Components/Call/VoiceCallOverlay";
+import VideoCallOverlay from "./Components/Call/VideoCallOverlay";
 
 const Home = lazy(() => import("./pages/Home"));
 const Profile = lazy(() => import("./pages/Profile"));
@@ -52,6 +53,7 @@ const App = () => {
         </Suspense>
         <NotificationPopupManager />
         <VoiceCallOverlay />
+        <VideoCallOverlay />
       </div>
   );
 };

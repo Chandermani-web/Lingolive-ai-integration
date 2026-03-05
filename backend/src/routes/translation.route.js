@@ -1,8 +1,10 @@
 import express from 'express';
+import multer from 'multer';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { translateText, translateBatch, getSupportedLanguages, checkTranslationServiceHealth } from '../utils/translationService.js';
+import { translateText, translateBatch, getSupportedLanguages, checkTranslationServiceHealth, voiceTranslate } from '../utils/translationService.js';
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Translate single text
 router.post('/translate', asyncHandler(async (req, res) => {
@@ -71,6 +73,35 @@ router.get('/health', asyncHandler(async (req, res) => {
         success: isHealthy,
         status: isHealthy ? 'healthy' : 'unhealthy'
     });
+}));
+
+// Voice translate - accepts audio file, returns JSON with transcription + translated audio
+router.post('/voice', upload.single('audio'), asyncHandler(async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'Audio file is required' });
+    }
+
+    const { sourceLang, targetLang } = req.body;
+
+    if (!targetLang) {
+        return res.status(400).json({ success: false, message: 'targetLang is required' });
+    }
+
+    try {
+        const result = await voiceTranslate(
+            req.file.buffer,
+            req.file.originalname,
+            sourceLang || 'english',
+            targetLang
+        );
+        res.status(200).json(result);
+    } catch (error) {
+        console.error('Voice translate route error:', error);
+        res.status(502).json({
+            success: false,
+            error: error.message || 'Voice translation unavailable'
+        });
+    }
 }));
 
 export default router;

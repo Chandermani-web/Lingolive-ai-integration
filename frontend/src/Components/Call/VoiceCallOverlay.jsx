@@ -1,31 +1,58 @@
-import { useEffect, useRef } from "react";
-import { Phone, PhoneIncoming, PhoneOff, Mic, MicOff, AlertCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Phone, PhoneIncoming, PhoneOff, Mic, MicOff, Subtitles, AlertCircle } from "lucide-react";
 import { useCall } from "../../Context/CallContext";
 
 const VoiceCallOverlay = () => {
   const {
     callState,
+    callType,
     incomingCall,
     activeCall,
     localStream,
     remoteStream,
     callError,
     isMuted,
+    captions,
+    captionsEnabled,
     acceptCall,
     declineCall,
     endCall,
     toggleMute,
+    toggleCaptions,
   } = useCall();
 
   const remoteAudioRef = useRef(null);
   const localAudioRef = useRef(null);
+  const [showCaptionText, setShowCaptionText] = useState(null);
+  const captionTimerRef = useRef(null);
+
+  // Only show for AUDIO calls (video calls use VideoCallOverlay)
+  const isAudioCall = callType === "audio" || callType === null;
+  const visibleStates = ["incoming", "calling", "connecting", "connected"];
+  const shouldShow = isAudioCall && (visibleStates.includes(callState) || Boolean(callError));
+  // Don't show if callType is explicitly "video"
+  const hide = callType === "video";
 
   useEffect(() => {
     const element = remoteAudioRef.current;
     if (element && remoteStream) {
+      console.log("🔊 Attaching remote stream to audio element, tracks:", remoteStream.getAudioTracks().length);
       element.srcObject = remoteStream;
       element.muted = false;
-      element.play().catch(() => {});
+      element.volume = 1.0;
+      const playPromise = element.play();
+      if (playPromise) {
+        playPromise.catch((err) => {
+          console.error("❌ Remote audio autoplay blocked:", err.message);
+          const resumeAudio = () => {
+            element.play().catch(() => {});
+            document.removeEventListener("click", resumeAudio);
+            document.removeEventListener("touchstart", resumeAudio);
+          };
+          document.addEventListener("click", resumeAudio);
+          document.addEventListener("touchstart", resumeAudio);
+        });
+      }
     }
   }, [remoteStream]);
 
@@ -38,10 +65,19 @@ const VoiceCallOverlay = () => {
     }
   }, [localStream]);
 
-  const visibleStates = ["incoming", "calling", "connecting", "connected"];
-  const shouldShow = visibleStates.includes(callState) || Boolean(callError);
+  // Fade captions
+  useEffect(() => {
+    if (!captions?.translation) return;
+    setShowCaptionText({
+      original: captions.transcription,
+      translated: captions.translation,
+    });
+    if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
+    captionTimerRef.current = setTimeout(() => setShowCaptionText(null), 8000);
+    return () => { if (captionTimerRef.current) clearTimeout(captionTimerRef.current); };
+  }, [captions]);
 
-  if (!shouldShow) return null;
+  if (!shouldShow || hide) return null;
 
   const displayUser = incomingCall?.caller || activeCall?.peer;
   const statusLabel = (() => {
@@ -122,6 +158,17 @@ const VoiceCallOverlay = () => {
               {isMuted ? "Unmute" : "Mute"}
             </button>
             <button
+              onClick={toggleCaptions}
+              className={`inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border transition ${
+                captionsEnabled
+                  ? "bg-blue-600/80 text-white border-blue-500/60"
+                  : "bg-gray-800/40 text-gray-400 border-gray-700/80 hover:bg-gray-800"
+              }`}
+              title={captionsEnabled ? "Disable captions" : "Enable captions"}
+            >
+              <Subtitles className="w-4 h-4" />
+            </button>
+            <button
               onClick={endCall}
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-red-500/90 hover:bg-red-600 text-white font-medium transition"
             >
@@ -131,6 +178,15 @@ const VoiceCallOverlay = () => {
           </>
         )}
       </div>
+      {/* Real-time captions for voice call */}
+      {captionsEnabled && showCaptionText && callState === "connected" && (
+        <div className="px-5 pb-3">
+          <div className="bg-gray-800/60 rounded-lg px-3 py-2 border border-gray-700/40">
+            <p className="text-gray-400 text-xs mb-0.5">{showCaptionText.original}</p>
+            <p className="text-blue-300 text-sm font-medium">{showCaptionText.translated}</p>
+          </div>
+        </div>
+      )}
       <audio ref={remoteAudioRef} autoPlay playsInline />
       <audio ref={localAudioRef} autoPlay playsInline muted />
     </div>

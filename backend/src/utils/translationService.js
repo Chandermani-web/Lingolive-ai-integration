@@ -1,4 +1,5 @@
 import axios from 'axios';
+import FormData from 'form-data';
 
 const TRANSLATION_API_URL = process.env.TRANSLATION_API_URL || 'http://localhost:5001';
 
@@ -101,5 +102,31 @@ export const checkTranslationServiceHealth = async () => {
     } catch (error) {
         console.error('Translation service health check failed:', error.message);
         return false;
+    }
+};
+
+export const voiceTranslate = async (audioBuffer, originalName, sourceLang = 'english', targetLang = 'hindi') => {
+    try {
+        const form = new FormData();
+        form.append('audio', audioBuffer, {
+            filename: originalName || 'recording.wav',
+            contentType: 'audio/wav',
+        });
+        form.append('source_lang', sourceLang);
+        form.append('target_lang', targetLang);
+
+        const response = await axios.post(
+            `${TRANSLATION_API_URL}/api/voice/translate/json`,
+            form,
+            {
+                headers: form.getHeaders(),
+                maxContentLength: 50 * 1024 * 1024,
+                timeout: 60000,
+            }
+        );
+        return response.data;
+    } catch (error) {
+        console.error('Voice translation error:', error.response?.data || error.message);
+        throw new Error(error.response?.data?.detail || 'Voice translation failed');
     }
 };
